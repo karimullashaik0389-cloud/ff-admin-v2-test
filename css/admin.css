@@ -78,3 +78,4 @@ select option{background:#16100e}
 .kv b{color:var(--muted);font-weight:500}
 .sm-select{width:auto;padding:8px 10px;font-size:13px;border-radius:10px}
 .lockedline{color:#fde68a}
+#dPick{display:inline-block;width:auto;margin:4px 0 0;padding:8px 14px}

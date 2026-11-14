@@ -28,6 +28,31 @@
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function money(n) { return '£' + Number(n || 0).toFixed(2); }
   function can(p) { return !!(me && me.perms && me.perms[p]); }
+  function shrinkPhoto(file, done, fail) {
+    if (!file) return;
+    if (!file.type || file.type.indexOf('image/') !== 0) { fail('Please choose a photo'); return; }
+    var url = URL.createObjectURL(file);
+    var img = new Image();
+    img.onload = function () {
+      var w = img.naturalWidth || img.width, h = img.naturalHeight || img.height, max = 1200;
+      if (w > max || h > max) {
+        if (w >= h) { h = Math.round(h * max / w); w = max; }
+        else { w = Math.round(w * max / h); h = max; }
+      }
+      var canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      var dataUrl;
+      try { dataUrl = canvas.toDataURL('image/jpeg', 0.8); }
+      catch (e) { fail('That photo could not be read'); return; }
+      var raw = dataUrl.replace(/^data:[^;]+;base64,/, '');
+      if (Math.floor(raw.length * 3 / 4) > 5 * 1024 * 1024) { fail('Photo must be under 5 MB'); return; }
+      done(dataUrl, raw);
+    };
+    img.onerror = function () { URL.revokeObjectURL(url); fail('That photo could not be read'); };
+    img.src = url;
+  }
   function show(id, on) { $(id).classList.toggle('hidden', !on); }
   var toastTimer;
   function toast(msg, err) {
@@ -207,8 +232,9 @@
       '<label for="dNote">Short description</label><input id="dNote" maxlength="140" value="' + esc(it.note) + '"' + dE + ' />' +
       '<div class="row2"><div><label for="dPrice">Price (£)</label><input id="dPrice" type="number" inputmode="decimal" step="0.01" min="0" max="500" value="' + esc(it.price) + '"' + dP + ' /></div>' +
       '<div><label for="dSort">Order on menu</label><input id="dSort" type="number" inputmode="numeric" step="1" min="0" value="' + esc(it.sort) + '"' + dE + ' /></div></div>' +
-      '<label for="dImage">Photo (pick one, or paste an https:// link)</label><input id="dImage" value="' + esc(it.image) + '" placeholder="img/chai.jpg"' + dE + ' />' +
+      (dE ? '' : '<button type="button" class="btn btn-ghost sm" id="dPick">Choose photo</button><input id="dFile" type="file" accept="image/*" class="hidden" />') +
       '<div class="preview"><img id="dPrev" alt="" /><span class="hint" id="dPrevTxt"></span></div>' +
+      '<label for="dImage">or paste a link</label><input id="dImage" value="' + esc(it.image) + '" placeholder="https://… or img/chai.jpg"' + dE + ' />' +
       (dE ? '' : '<div class="chips" id="dChips">' + IMAGES.map(function (src) { return '<button type="button" class="chip" data-img="' + src + '"><img src="' + src + '" alt="" /></button>'; }).join('') + '</div>') +
       '<div class="row2"><div><label for="dSpecial">Tag</label><select id="dSpecial"' + dE + '><option value="">None</option><option value="weekend">Weekend special</option></select></div>' +
       '<div><label for="dVisible">On the menu</label><select id="dVisible"' + dA + '><option value="true">Available</option><option value="false">Out of stock (hidden)</option></select></div></div>' +
@@ -224,6 +250,31 @@
     }
     $('dImage').oninput = prev; prev();
     document.querySelectorAll('#dChips .chip').forEach(function (c) { c.onclick = function () { $('dImage').value = c.getAttribute('data-img'); prev(); }; });
+    if ($('dPick')) {
+      $('dPick').onclick = function () { $('dFile').click(); };
+      $('dFile').onchange = function () {
+        var file = $('dFile').files && $('dFile').files[0];
+        $('dFile').value = '';
+        if (!file) return;
+        var btn = $('dPick');
+        busy(btn, true);
+        $('dPrevTxt').textContent = 'Preparing photo…';
+        shrinkPhoto(file, function (dataUrl, raw) {
+          $('dPrev').src = dataUrl;
+          $('dPrevTxt').textContent = 'Uploading…';
+          api({ action: 'imageUpload', data: raw, mimeType: 'image/jpeg', filename: (file.name || 'dish') + '.jpg' }).then(function (r) {
+            $('dImage').value = r.url; prev(); $('dPrevTxt').textContent = 'Photo ready – tap Save to keep it';
+            busy(btn, false);
+          }).catch(function (e) {
+            $('dPrevTxt').textContent = e.message || 'Upload failed';
+            busy(btn, false);
+          });
+        }, function (msg) {
+          $('dPrevTxt').textContent = msg;
+          busy(btn, false);
+        });
+      };
+    }
     $('dCancel').onclick = closeSheet;
     $('dSave').onclick = function () {
       var item = { id: it.id };
